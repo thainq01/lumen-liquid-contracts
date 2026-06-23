@@ -15,6 +15,37 @@ use soroban_sdk::{Address, Env};
 use crate::errors::PairRegistryError;
 use crate::types::{DataKey, FundingState, Group, PairInfo, PairOi, RolloverState};
 
+// ───────────────────────── TTL policy ─────────────────────────
+// Extend persistent + instance entries by a configurable number of ledgers on
+// every touch. Stored in instance storage so the admin can retune it (e.g. when
+// the network's average ledger close time changes) without a contract upgrade.
+// Default ≈ 7 days at ~5s/ledger.
+const DEFAULT_TTL_EXTEND_LEDGERS: u32 = 120_960;
+
+pub fn read_ttl_extend_ledgers(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::TtlExtendLedgers)
+        .unwrap_or(DEFAULT_TTL_EXTEND_LEDGERS)
+}
+
+pub fn write_ttl_extend_ledgers(env: &Env, ledgers: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::TtlExtendLedgers, &ledgers);
+}
+
+/// Bump the shared instance entry. Call once per mutating entry point.
+pub fn bump_instance(env: &Env) {
+    let n = read_ttl_extend_ledgers(env);
+    env.storage().instance().extend_ttl(n, n);
+}
+
+fn bump_persistent(env: &Env, key: &DataKey) {
+    let n = read_ttl_extend_ledgers(env);
+    env.storage().persistent().extend_ttl(key, n, n);
+}
+
 // ───────────────────────── instance ─────────────────────────
 
 pub fn read_admin(env: &Env) -> Result<Address, PairRegistryError> {
@@ -72,16 +103,18 @@ pub fn has_pair(env: &Env, pair_index: u32) -> bool {
 }
 
 pub fn read_pair(env: &Env, pair_index: u32) -> Result<PairInfo, PairRegistryError> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Pair(pair_index))
-        .ok_or(PairRegistryError::PairNotFound)
+    let key = DataKey::Pair(pair_index);
+    let v: Option<PairInfo> = env.storage().persistent().get(&key);
+    if v.is_some() {
+        bump_persistent(env, &key);
+    }
+    v.ok_or(PairRegistryError::PairNotFound)
 }
 
 pub fn write_pair(env: &Env, pair_index: u32, pair: &PairInfo) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Pair(pair_index), pair);
+    let key = DataKey::Pair(pair_index);
+    env.storage().persistent().set(&key, pair);
+    bump_persistent(env, &key);
 }
 
 pub fn has_group(env: &Env, group_index: u32) -> bool {
@@ -89,66 +122,78 @@ pub fn has_group(env: &Env, group_index: u32) -> bool {
 }
 
 pub fn read_group(env: &Env, group_index: u32) -> Result<Group, PairRegistryError> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Group(group_index))
-        .ok_or(PairRegistryError::GroupNotFound)
+    let key = DataKey::Group(group_index);
+    let v: Option<Group> = env.storage().persistent().get(&key);
+    if v.is_some() {
+        bump_persistent(env, &key);
+    }
+    v.ok_or(PairRegistryError::GroupNotFound)
 }
 
 pub fn write_group(env: &Env, group_index: u32, group: &Group) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Group(group_index), group);
+    let key = DataKey::Group(group_index);
+    env.storage().persistent().set(&key, group);
+    bump_persistent(env, &key);
 }
 
 // ───────────────────────── persistent: accumulators ─────────────────────────
 
 pub fn read_rollover(env: &Env, pair_index: u32) -> RolloverState {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Rollover(pair_index))
-        .unwrap_or_default()
+    let key = DataKey::Rollover(pair_index);
+    let v: Option<RolloverState> = env.storage().persistent().get(&key);
+    if v.is_some() {
+        bump_persistent(env, &key);
+    }
+    v.unwrap_or_default()
 }
 
 pub fn write_rollover(env: &Env, pair_index: u32, state: &RolloverState) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Rollover(pair_index), state);
+    let key = DataKey::Rollover(pair_index);
+    env.storage().persistent().set(&key, state);
+    bump_persistent(env, &key);
 }
 
 pub fn read_funding(env: &Env, pair_index: u32) -> FundingState {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Funding(pair_index))
-        .unwrap_or_default()
+    let key = DataKey::Funding(pair_index);
+    let v: Option<FundingState> = env.storage().persistent().get(&key);
+    if v.is_some() {
+        bump_persistent(env, &key);
+    }
+    v.unwrap_or_default()
 }
 
 pub fn write_funding(env: &Env, pair_index: u32, state: &FundingState) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Funding(pair_index), state);
+    let key = DataKey::Funding(pair_index);
+    env.storage().persistent().set(&key, state);
+    bump_persistent(env, &key);
 }
 
 pub fn read_oi(env: &Env, pair_index: u32) -> PairOi {
-    env.storage()
-        .persistent()
-        .get(&DataKey::OI(pair_index))
-        .unwrap_or_default()
+    let key = DataKey::OI(pair_index);
+    let v: Option<PairOi> = env.storage().persistent().get(&key);
+    if v.is_some() {
+        bump_persistent(env, &key);
+    }
+    v.unwrap_or_default()
 }
 
 pub fn write_oi(env: &Env, pair_index: u32, oi: &PairOi) {
-    env.storage().persistent().set(&DataKey::OI(pair_index), oi);
+    let key = DataKey::OI(pair_index);
+    env.storage().persistent().set(&key, oi);
+    bump_persistent(env, &key);
 }
 
 pub fn read_depth(env: &Env, pair_index: u32) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Depth(pair_index))
-        .unwrap_or(0)
+    let key = DataKey::Depth(pair_index);
+    let v: Option<i128> = env.storage().persistent().get(&key);
+    if v.is_some() {
+        bump_persistent(env, &key);
+    }
+    v.unwrap_or(0)
 }
 
 pub fn write_depth(env: &Env, pair_index: u32, value: i128) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Depth(pair_index), &value);
+    let key = DataKey::Depth(pair_index);
+    env.storage().persistent().set(&key, &value);
+    bump_persistent(env, &key);
 }

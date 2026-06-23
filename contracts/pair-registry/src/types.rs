@@ -127,6 +127,9 @@ pub enum DataKey {
     PositionManager,
     MaxPosUsdc,
     PairsCount,
+    /// Number of ledgers to extend persistent/instance entry TTL on touch.
+    /// Admin-configurable so the policy can track changing ledger close time.
+    TtlExtendLedgers,
     Pair(u32),
     Group(u32),
     Rollover(u32),

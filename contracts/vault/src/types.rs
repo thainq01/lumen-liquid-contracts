@@ -44,6 +44,9 @@ pub enum DataKey {
     WithdrawLockLedgers,
     /// Emergency pause flag.
     Paused,
+    /// Number of ledgers to extend persistent/instance entry TTL on touch.
+    /// Admin-configurable so the policy can track changing ledger close time.
+    TtlExtendLedgers,
     // ── persistent ──
     /// Per-holder gToken share balance.
     Balance(Address),

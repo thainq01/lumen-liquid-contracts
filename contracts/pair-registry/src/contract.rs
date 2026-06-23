@@ -22,12 +22,14 @@ pub struct PairRegistryContract;
 fn require_admin(env: &Env) -> Result<(), PairRegistryError> {
     let admin = storage::read_admin(env)?;
     admin.require_auth();
+    storage::bump_instance(env);
     Ok(())
 }
 
 fn require_position_manager(env: &Env) -> Result<(), PairRegistryError> {
     let pm = storage::read_position_manager(env)?;
     pm.require_auth();
+    storage::bump_instance(env);
     Ok(())
 }
 
@@ -93,6 +95,7 @@ impl PairRegistryContract {
         storage::write_position_manager(&env, &position_manager);
         storage::write_max_pos_usdc(&env, max_pos_usdc);
         storage::write_pairs_count(&env, 0);
+        storage::write_ttl_extend_ledgers(&env, 120_960); // ≈7d at ~5s/ledger
         env.events().publish(
             (Symbol::new(&env, "init"),),
             (admin, position_manager, max_pos_usdc),
@@ -315,6 +318,7 @@ impl PairRegistryContract {
     ) -> Result<(), PairRegistryError> {
         let admin = storage::read_admin(&env)?;
         admin.require_auth();
+        storage::bump_instance(&env);
         storage::write_position_manager(&env, &position_manager);
         env.events().publish(
             (Symbol::new(&env, "set_pm"),),
@@ -331,6 +335,17 @@ impl PairRegistryContract {
         storage::write_max_pos_usdc(&env, value);
         env.events()
             .publish((Symbol::new(&env, "max_pos"),), value);
+        Ok(())
+    }
+
+    /// Set how many ledgers each storage touch extends entry TTL by. Admin-only.
+    /// Retune when the network's average ledger close time shifts so the
+    /// intended wall-clock lifetime stays accurate. No upgrade needed.
+    pub fn set_ttl_extend_ledgers(env: Env, ledgers: u32) -> Result<(), PairRegistryError> {
+        require_admin(&env)?;
+        storage::write_ttl_extend_ledgers(&env, ledgers);
+        env.events()
+            .publish((Symbol::new(&env, "ttl_extend"),), ledgers);
         Ok(())
     }
 

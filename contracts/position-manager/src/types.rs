@@ -69,6 +69,9 @@ pub enum DataKey {
     ReflectorContract,
     Paused,
     MaxTradesPerPair,
+    /// Number of ledgers to extend persistent/instance entry TTL on touch.
+    /// Admin-configurable so the policy can track changing ledger close time.
+    TtlExtendLedgers,
     TradesCount(Address, u32), // (trader, pair_index) -> u32
     Trade(Address, u32, u32),  // (trader, pair_index, trade_index) -> Trade
     LimitsCount(Address, u32), // (trader, pair_index) -> u32

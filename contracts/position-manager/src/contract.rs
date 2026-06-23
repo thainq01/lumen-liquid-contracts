@@ -77,6 +77,7 @@ impl PositionManagerContract {
             .instance()
             .set(&DataKey::ReflectorContract, &reflector_contract);
         storage::write_paused(&env, false);
+        storage::write_ttl_extend_ledgers(&env, 120_960); // ≈7d at ~5s/ledger
         Ok(())
     }
 
@@ -131,6 +132,7 @@ impl PositionManagerContract {
     ) -> Result<u32, PositionManagerError> {
         require_not_paused(&env)?;
         trader.require_auth();
+        storage::bump_instance(&env);
 
         if collateral <= 0 || leverage == 0 {
             return Err(PositionManagerError::InvalidParam);
@@ -208,6 +210,7 @@ impl PositionManagerContract {
         trade_index: u32,
     ) -> Result<(), PositionManagerError> {
         trader.require_auth();
+        storage::bump_instance(&env);
         let trade = storage::read_trade(&env, &trader, pair_index, trade_index)
             .ok_or(PositionManagerError::TradeNotFound)?;
 
@@ -282,6 +285,7 @@ impl PositionManagerContract {
     ) -> Result<u32, PositionManagerError> {
         require_not_paused(&env)?;
         trader.require_auth();
+        storage::bump_instance(&env);
 
         if collateral <= 0 || leverage == 0 || limit_price <= 0 {
             return Err(PositionManagerError::InvalidParam);
@@ -335,6 +339,7 @@ impl PositionManagerContract {
         limit_index: u32,
     ) -> Result<u32, PositionManagerError> {
         require_not_paused(&env)?;
+        storage::bump_instance(&env);
         let order = storage::read_limit_order(&env, &trader, pair_index, limit_index)
             .ok_or(PositionManagerError::LimitNotFound)?;
 
@@ -406,6 +411,7 @@ impl PositionManagerContract {
     ) -> Result<(), PositionManagerError> {
         require_not_paused(&env)?;
         trader.require_auth();
+        storage::bump_instance(&env);
 
         let order = storage::read_limit_order(&env, &trader, pair_index, limit_index)
             .ok_or(PositionManagerError::LimitNotFound)?;
@@ -432,6 +438,7 @@ impl PositionManagerContract {
     ) -> Result<(), PositionManagerError> {
         require_not_paused(&env)?;
         trader.require_auth();
+        storage::bump_instance(&env);
 
         let mut order = storage::read_limit_order(&env, &trader, pair_index, limit_index)
             .ok_or(PositionManagerError::LimitNotFound)?;
@@ -459,6 +466,7 @@ impl PositionManagerContract {
         pair_index: u32,
         trade_index: u32,
     ) -> Result<(), PositionManagerError> {
+        storage::bump_instance(&env);
         let trade = storage::read_trade(&env, &trader, pair_index, trade_index)
             .ok_or(PositionManagerError::TradeNotFound)?;
 
@@ -514,6 +522,7 @@ impl PositionManagerContract {
     ) -> Result<(), PositionManagerError> {
         require_not_paused(&env)?;
         trader.require_auth();
+        storage::bump_instance(&env);
 
         let mut trade = storage::read_trade(&env, &trader, pair_index, trade_index)
             .ok_or(PositionManagerError::TradeNotFound)?;
@@ -540,6 +549,7 @@ impl PositionManagerContract {
     ) -> Result<(), PositionManagerError> {
         require_not_paused(&env)?;
         keeper.require_auth(); // Or restrict to a whitelisted keeper later
+        storage::bump_instance(&env);
 
         let trade = storage::read_trade(&env, &trader, pair_index, trade_index)
             .ok_or(PositionManagerError::TradeNotFound)?;
@@ -631,6 +641,19 @@ impl PositionManagerContract {
         let admin = storage::read_admin(&env);
         admin.require_auth();
         storage::write_max_trades_per_pair(&env, max_trades);
+        Ok(())
+    }
+
+    /// Set how many ledgers each storage touch extends entry TTL by. Admin-only.
+    /// Retune when the network's average ledger close time shifts so the
+    /// intended wall-clock lifetime stays accurate. No upgrade needed.
+    pub fn set_ttl_extend_ledgers(env: Env, ledgers: u32) -> Result<(), PositionManagerError> {
+        let admin = storage::read_admin(&env);
+        admin.require_auth();
+        storage::bump_instance(&env);
+        storage::write_ttl_extend_ledgers(&env, ledgers);
+        env.events()
+            .publish((Symbol::new(&env, "ttl_extend"),), ledgers);
         Ok(())
     }
 }

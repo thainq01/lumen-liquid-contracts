@@ -27,12 +27,14 @@ pub struct VaultContract;
 fn require_admin(env: &Env) -> Result<(), VaultError> {
     let admin = storage::read_admin(env)?;
     admin.require_auth();
+    storage::bump_instance(env);
     Ok(())
 }
 
 fn require_position_manager(env: &Env) -> Result<(), VaultError> {
     let pm = storage::read_position_manager(env)?;
     pm.require_auth();
+    storage::bump_instance(env);
     Ok(())
 }
 
@@ -40,6 +42,7 @@ fn require_not_paused(env: &Env) -> Result<(), VaultError> {
     if storage::read_paused(env) {
         return Err(VaultError::Paused);
     }
+    storage::bump_instance(env);
     Ok(())
 }
 
@@ -149,6 +152,7 @@ impl VaultContract {
         storage::write_total_assets(&env, 0);
         storage::write_total_shares(&env, 0);
         storage::write_paused(&env, false);
+        storage::write_ttl_extend_ledgers(&env, 120_960); // ≈7d at ~5s/ledger
         env.events().publish(
             (Symbol::new(&env, "init"),),
             (admin, position_manager, usdc_token, withdraw_lock_ledgers),
@@ -173,6 +177,7 @@ impl VaultContract {
         if amount < 0 {
             return Err(VaultError::InvalidParam);
         }
+        storage::bump_instance(&env);
         storage::write_allowance(
             &env,
             &from,
@@ -195,6 +200,7 @@ impl VaultContract {
 
     pub fn transfer(env: Env, from: Address, to: MuxedAddress, amount: i128) -> Result<(), VaultError> {
         from.require_auth();
+        storage::bump_instance(&env);
         let to_addr = to.address();
         move_shares(&env, &from, &to_addr, amount)?;
         env.events()
@@ -210,6 +216,7 @@ impl VaultContract {
         amount: i128,
     ) -> Result<(), VaultError> {
         spender.require_auth();
+        storage::bump_instance(&env);
         spend_allowance(&env, &from, &spender, amount)?;
         move_shares(&env, &from, &to, amount)?;
         env.events()
@@ -222,6 +229,7 @@ impl VaultContract {
         if amount < 0 {
             return Err(VaultError::InvalidParam);
         }
+        storage::bump_instance(&env);
         burn_shares(&env, &from, amount)?;
         env.events()
             .publish((Symbol::new(&env, "burn"), from), amount);
@@ -238,6 +246,7 @@ impl VaultContract {
         if amount < 0 {
             return Err(VaultError::InvalidParam);
         }
+        storage::bump_instance(&env);
         spend_allowance(&env, &from, &spender, amount)?;
         burn_shares(&env, &from, amount)?;
         env.events()
@@ -499,6 +508,17 @@ impl VaultContract {
         storage::write_withdraw_lock_ledgers(&env, ledgers);
         env.events()
             .publish((Symbol::new(&env, "set_lock"),), ledgers);
+        Ok(())
+    }
+
+    /// Set how many ledgers each storage touch extends entry TTL by. Admin-only.
+    /// Retune when the network's average ledger close time shifts so the
+    /// intended wall-clock lifetime stays accurate. No upgrade needed.
+    pub fn set_ttl_extend_ledgers(env: Env, ledgers: u32) -> Result<(), VaultError> {
+        require_admin(&env)?;
+        storage::write_ttl_extend_ledgers(&env, ledgers);
+        env.events()
+            .publish((Symbol::new(&env, "ttl_extend"),), ledgers);
         Ok(())
     }
 

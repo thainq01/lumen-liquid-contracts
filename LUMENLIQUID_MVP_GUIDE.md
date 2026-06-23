@@ -227,3 +227,69 @@ stellar contract install --wasm target/wasm32-unknown-unknown/release/position_m
 stellar contract invoke --id $PM_ID --source vi_deploy --network testnet -- \
   upgrade --new_wasm_hash <HEX_HASH_TỪ_LỆNH_INSTALL>
 ```
+
+---
+
+## Bước 6: Gia hạn TTL của dữ liệu (State Archival / TTL)
+
+### Bối cảnh
+
+Trên Soroban, mọi dữ liệu `persistent` (Trade, vị thế, balance LP, cấu hình Pair...) và `instance` đều có **TTL (Time To Live)** tính bằng số ledger. Khi TTL về 0, dữ liệu bị **archive** (lưu trữ lạnh) — KHÔNG đọc, KHÔNG ghi được nữa cho tới khi `RestoreFootprint`. Nếu một lệnh (Trade) bị archive thì `liquidate_trade` / `close_market_trade` sẽ thất bại.
+
+Cả 3 hợp đồng đã tự động **gia hạn TTL mỗi lần dữ liệu được đọc hoặc ghi** (mở lệnh, đóng lệnh, thanh lý, deposit, withdraw...). Số ledger gia hạn mỗi lần chạm là một tham số `ttl_extend_ledgers` lưu trong instance storage, mặc định `120960` (≈ 7 ngày ở mức ~5s/ledger).
+
+### Vì sao cần chỉnh tham số này
+
+Thời gian đóng ledger trung bình thay đổi theo mạng (testnet ~5s, mainnet hiện ~5.8s và có thể đổi trong tương lai). Vì TTL tính bằng **số ledger** chứ không phải giây, nên khi tốc độ ledger đổi, số ngày thực tế sẽ lệch. Admin chỉnh lại `ttl_extend_ledgers` để giữ đúng mục tiêu số ngày — **không cần upgrade hợp đồng**.
+
+### Cách tính số ledger
+
+Công thức:
+
+```
+ledgers = số_ngày × 86400 / số_giây_mỗi_ledger
+```
+
+- `86400` = số giây trong 1 ngày (24 × 60 × 60).
+- `số_giây_mỗi_ledger`: lấy từ [lab.stellar.org/network-limits](https://lab.stellar.org/network-limits), hoặc tính từ RPC bằng cách lấy 2 ledger rồi `(time2 - time1) / (seq2 - seq1)`.
+
+Ví dụ mục tiêu **7 ngày**:
+
+| Giây/ledger | Phép tính | Kết quả (ledgers) |
+|---|---|---|
+| 5.0 (testnet) | 604800 / 5.0 | `120960` |
+| 5.8 (mainnet) | 604800 / 5.8 | `104276` |
+| 6.0 | 604800 / 6.0 | `100800` |
+
+Mục tiêu dài hơn (ở 5.8s/ledger): 30 ngày = `446897`, 90 ngày = `1340690`.
+
+Tính nhanh bằng một dòng:
+
+```bash
+python3 -c "print(round(7 * 86400 / 5.8))"   # → 104276
+```
+
+### Lệnh chỉnh tham số (Admin Only)
+
+Gọi trên **cả 3 hợp đồng** (mỗi hợp đồng giữ tham số riêng):
+
+```bash
+LEDGERS=104276   # = 7 ngày ở 5.8s/ledger
+
+stellar contract invoke --id $PM_ID --source vi_deploy --network testnet -- \
+  set_ttl_extend_ledgers --ledgers $LEDGERS
+
+stellar contract invoke --id $REGISTRY_ID --source vi_deploy --network testnet -- \
+  set_ttl_extend_ledgers --ledgers $LEDGERS
+
+stellar contract invoke --id $VAULT_ID --source vi_deploy --network testnet -- \
+  set_ttl_extend_ledgers --ledgers $LEDGERS
+```
+
+> [!NOTE]
+> - Giá trị mới có hiệu lực ngay, áp dụng cho mọi lần chạm dữ liệu sau đó.
+> - Phí rent của việc gia hạn TTL được gộp vào resource fee (gas) của giao dịch chạm dữ liệu đó — ví dụ trader trả khi mở lệnh, keeper trả khi thanh lý. Không có khoản chuyển tiền riêng.
+> - `set_ttl_extend_ledgers` chỉ KÉO DÀI được TTL; không thể đặt TTL ngắn hơn mức sàn (minimum persistent TTL) của mạng.
+
+> [!WARNING]
+> Gia hạn-khi-chạm chỉ cứu được dữ liệu CÓ được chạm. Một lệnh mở rồi để yên quá thời gian TTL (không ai đọc/ghi) vẫn sẽ bị archive. Cần một keeper quét định kỳ gọi `ExtendFootprintTTL` cho các vị thế đang mở (Phase 2).
