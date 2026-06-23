@@ -195,7 +195,7 @@ impl PositionManagerContract {
         registry.add_oi(&pair_index, &is_long, &effective_notional);
 
         env.events()
-            .publish((Symbol::new(&env, "opened"), trader), (trade_index, trade.clone()));
+            .publish((Symbol::new(&env, "opened"), trader), (trade_index, trade.clone(), open_fee));
 
         Ok(trade_index)
     }
@@ -260,8 +260,10 @@ impl PositionManagerContract {
         let effective_notional = trade.collateral.checked_mul(trade.leverage as i128).unwrap();
         registry.sub_oi(&pair_index, &trade.is_long, &effective_notional);
 
-        env.events()
-            .publish((Symbol::new(&env, "closed"), trader), trade_index);
+        env.events().publish(
+            (Symbol::new(&env, "closed"), trader, pair_index),
+            (trade_index, close_price, close_fee_charged, net_pnl_for_vault, gross_payout),
+        );
 
         Ok(())
     }
@@ -494,8 +496,10 @@ impl PositionManagerContract {
         let effective_notional = trade.collateral.checked_mul(trade.leverage as i128).unwrap();
         registry.sub_oi(&pair_index, &trade.is_long, &effective_notional);
 
-        env.events()
-            .publish((Symbol::new(&env, "liq"), trader), trade_index);
+        env.events().publish(
+            (Symbol::new(&env, "liq"), trader, pair_index),
+            (trade_index, obs.price, 0_i128, net_pnl_for_vault, 0_i128),
+        );
 
         Ok(())
     }
@@ -519,8 +523,10 @@ impl PositionManagerContract {
 
         storage::write_trade(&env, &trader, pair_index, trade_index, &trade);
 
-        env.events()
-            .publish((Symbol::new(&env, "updated_tp_sl"), trader), trade_index);
+        env.events().publish(
+            (Symbol::new(&env, "updated_tp_sl"), trader, pair_index),
+            (trade_index, tp_price, sl_price),
+        );
 
         Ok(())
     }
@@ -606,8 +612,10 @@ impl PositionManagerContract {
         let effective_notional = trade.collateral.checked_mul(trade.leverage as i128).unwrap();
         registry.sub_oi(&pair_index, &trade.is_long, &effective_notional);
 
-        env.events()
-            .publish((Symbol::new(&env, "tp_sl_executed"), trader), trade_index);
+        env.events().publish(
+            (Symbol::new(&env, "tp_sl_executed"), trader, pair_index),
+            (trade_index, obs.price, close_fee_charged, net_pnl_for_vault, gross_payout),
+        );
 
         Ok(())
     }
